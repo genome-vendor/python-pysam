@@ -1,0 +1,5 @@
+pysam (0.4.1-2~Ubuntu~precise) unstable; urgency=low
+
+  * source package automatically created by stdeb 0.6.0+git
+
+ -- Anthony Brummett <abrummet@genome.wustl.edu>  Thu, 27 Sep 2012 14:08:04 -0500
