@@ -1,17 +1,15 @@
 Source: pysam
-Maintainer: Andreas Heger <andreas.heger@gmail.com>
+Maintainer: Charles Plessy <plessy@debian.org>
 Section: python
 Priority: optional
-Build-Depends: python-setuptools (>= 0.6b3), python-all-dev (>= 2.6.6-3), debhelper (>= 7)
+Build-Depends: python-setuptools (>= 0.6b3), python-all-dev (>= 2.6.6-3), debhelper (>= 7), zlib1g-dev
 Standards-Version: 3.9.1
 
 Package: python-pysam
-Architecture: any
-Depends: ${misc:Depends}, ${python:Depends}, ${shlibs:Depends}
-Description: pysam
- .
- .
- pysam
- *****
- .
- .
+Architecture: amd64
+Maintainer: Charles Plessy <plessy@debian.org>
+Homepage: http://code.google.com/p/pysam/
+Depends: ${misc:Depends}, ${python:Depends}, ${shlibs:Depends}, python-pyrex, zlib1g
+Description: interface for the SAM/BAM sequence alignment and mapping format
+ Pysam is a python module for reading and manipulating Samfiles. It's a
+ lightweight wrapper of the samtools C-API.
