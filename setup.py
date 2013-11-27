@@ -7,6 +7,7 @@ pysam
 '''
 
 import os, sys, glob, shutil, hashlib, re, fnmatch
+import platform
 
 name = "pysam"
 
@@ -17,7 +18,6 @@ import version
 version = version.__version__
 
 samtools_exclude = ( "bamtk.c", "razip.c", "bgzip.c", 
-                     "bam_reheader.c", 
                      "main.c", "calDepth.c", "bam2bed.c",
                      "wgsim.c", "md5fa.c", "maq2sam.c",)
 samtools_dest = os.path.abspath( "samtools" )
@@ -31,6 +31,21 @@ def locate(pattern, root=os.curdir):
        for filename in fnmatch.filter(files, pattern):
           yield os.path.join(path, filename)
 
+def _update_pysam_files(cf, destdir):
+  for filename in cf:
+     if not filename: continue
+     dest = filename + ".pysam.c"
+     with open( filename ) as infile:
+        with open( dest, "w" ) as outfile:
+           outfile.write( '#include "pysam.h"\n\n' )
+           outfile.write( re.sub( "stderr", "pysamerr", "".join(infile.readlines()) ) )
+  with open( os.path.join( destdir, "pysam.h" ), "w" )as outfile:
+     outfile.write ("""#ifndef PYSAM_H
+#define PYSAM_H
+#include "stdio.h"
+extern FILE * pysamerr;
+#endif
+""")
 
 # copy samtools source
 if len(sys.argv) >= 2 and sys.argv[1] == "import":
@@ -80,24 +95,25 @@ if len(sys.argv) >= 2 and sys.argv[1] == "import":
       print "installed latest source code from %s: %i files copied" % (srcdir, ncopied)
       # redirect stderr to pysamerr and replace bam.h with a stub.
       print "applying stderr redirection"
+     
+      _update_pysam_files(cf, destdir)
       
-      for filename in cf:
-         if not filename: continue
-         dest = filename + ".pysam.c"
-         with open( filename ) as infile:
-            with open( dest, "w" ) as outfile:
-               outfile.write( '#include "pysam.h"\n\n' )
-               outfile.write( re.sub( "stderr", "pysamerr", "".join(infile.readlines()) ) )
-      
-      with open( os.path.join( destdir, "pysam.h" ), "w" )as outfile:
-         outfile.write ("""#ifndef PYSAM_H
-#define PYSAM_H
-#include "stdio.h"
-extern FILE * pysamerr;
-#endif
-""")
 
    sys.exit(0)
+
+if len(sys.argv) >= 2 and sys.argv[1] == "refresh":
+    print "refreshing latest source code from .c to .pysam.c"
+# redirect stderr to pysamerr and replace bam.h with a stub.
+    print "applying stderr redirection"
+    for destdir in ('samtools', 'tabix'):
+        pysamcfiles = locate( "*.pysam.c", destdir )
+        for f in pysamcfiles: os.remove(f)
+        cfiles = locate( "*.c", destdir )
+        _update_pysam_files(cfiles, destdir)
+
+    sys.exit(0)
+
+
 
 from ez_setup import use_setuptools
 use_setuptools()
@@ -126,15 +142,23 @@ Topic :: Scientific/Engineering
 Topic :: Scientific/Engineering :: Bioinformatics
 """
 
+if platform.system()=='Windows':
+    include_os = ['win32']
+    os_c_files = ['win32/getopt.c']
+else:
+    include_os = []
+    os_c_files = []
+
 samtools = Extension(
     "csamtools",                   # name of extension
     [ "pysam/csamtools.pyx" ]  +\
         [ "pysam/%s" % x for x in (
                 "pysam_util.c", )] +\
         glob.glob( os.path.join( "samtools", "*.pysam.c" )) +\
+        os_c_files + \
         glob.glob( os.path.join( "samtools", "*", "*.pysam.c" ) ),
     library_dirs=[],
-    include_dirs=[ "samtools", "pysam" ],
+    include_dirs=[ "samtools", "pysam" ] + include_os,
     libraries=[ "z", ],
     language="c",
     define_macros = [('_FILE_OFFSET_BITS','64'),
@@ -143,11 +167,30 @@ samtools = Extension(
 
 tabix = Extension(
     "ctabix",                   # name of extension
-    [ "pysam/ctabix.pyx" ]  +\
+    [ "pysam/ctabix.pyx", ]  +\
        [ "pysam/%s" % x for x in ( "tabix_util.c", )] +\
+        os_c_files + \
        glob.glob( os.path.join( "tabix", "*.pysam.c" ) ),
     library_dirs=[],
-    include_dirs=[ "tabix", "pysam" ],
+    include_dirs=[ "tabix", "pysam" ] + include_os,
+    libraries=[ "z", ],
+    language="c",
+    )
+
+tabproxies = Extension(
+    "TabProxies",                   # name of extension
+    [ "pysam/TabProxies.pyx", ] + os_c_files,
+    library_dirs=[],
+    include_dirs= include_os,
+    libraries=[ "z", ],
+    language="c",
+    )
+
+cvcf = Extension(
+    "cvcf",                   # name of extension
+    [ "pysam/cvcf.pyx", ] + os_c_files,
+    library_dirs=[],
+    include_dirs= ["tabix",] + include_os,
     libraries=[ "z", ],
     language="c",
     )
@@ -168,9 +211,11 @@ metadata = {
       "pysam/namedtuple",
       "pysam/version" ],
     'requires' : ['cython (>=0.12)'],
-    'ext_modules': [samtools, tabix],
+    'ext_modules': [samtools, tabix, tabproxies, cvcf ],
     'cmdclass' : {'build_ext': build_ext},
     'install_requires' : ['cython>=0.12.1',], 
+    # do not pack in order to permit linking to csamtools.so
+    'zip_safe' :False,
     }
 
 if __name__=='__main__':

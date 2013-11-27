@@ -8,6 +8,10 @@
 #include "pysam_util.h"
 #include "errmod.h" // for pysam_dump 
 
+#ifndef inline
+#define inline __inline
+#endif
+
 // Definition of pysamerr
 #include "stdio.h"
 FILE * pysamerr = NULL;
@@ -23,13 +27,17 @@ FILE * pysam_set_stderr( FILE * f )
 // taken from bam_index.c
 // The order of the following declarations is important.
 // #######################################################
+#define BAM_MAX_BIN 37450 // =(8^6-1)/7+1
 
+// initialize hashes
 typedef struct
 {
   uint64_t u, v;
 } pair64_t;
 
 #define pair64_lt(a,b) ((a).u < (b).u)
+
+KSORT_INIT(myoff, pair64_t, pair64_lt);
 
 typedef struct {
 	uint32_t m, n;
@@ -41,14 +49,16 @@ typedef struct {
 	uint64_t *offset;
 } bam_lidx_t;
 
-KSORT_INIT(my_off, pair64_t, pair64_lt);
-KHASH_MAP_INIT_INT(my_i, bam_binlist_t);
+
+// initialize hashes ('i' and 's' are idenditifiers)
+KHASH_MAP_INIT_INT(i, bam_binlist_t);
 KHASH_MAP_INIT_STR(s, int)
 
 struct __bam_index_t
 {
   int32_t n;
-  khash_t(my_i) **index;
+  uint64_t n_no_coor; // unmapped reads without coordinate
+  khash_t(i) **index;
   bam_lidx_t *index2;
 };
 
@@ -73,7 +83,7 @@ struct __bam_plbuf_t {
 	bam_pileup1_t *pu;
 	int flag_mask;
 };
-
+  
 static mempool_t *mp_init()
 {
 	mempool_t *mp;
@@ -183,49 +193,87 @@ typedef struct __bmc_aux_t {
 	errmod_t *em;
 } bmc_aux_t;
 
-uint32_t pysam_glf_depth( glf1_t * g )
+// Return number of mapped reads on tid.
+// If tid < 0, return mapped reads without a coordinate (0)
+uint32_t pysam_get_mapped( const bam_index_t *idx, const int tid )
 {
-  return g->depth;
+
+  if (tid >= 0)
+    {
+      khint_t k;
+      khash_t(i) *h = idx->index[tid];
+      k = kh_get(i, h, BAM_MAX_BIN);
+
+      if (k != kh_end(h))
+	return kh_val(h, k).list[1].u;
+      else
+	return 0;
+    }
+
+  return 0;
 }
 
-
-void pysam_dump_glf( glf1_t * g, bam_maqcns_t * c )
+uint32_t pysam_get_unmapped( const bam_index_t *idx, const int tid )
 {
-  fprintf(stderr,
-	  "glf: ref_base=%i, max_mapQ=%i, min_lk=%i, depth=%i",
-	  g->ref_base,
-	  g->max_mapQ,
-	  g->min_lk,
-	  g->depth );
 
-  int x = 0;
-  for (x = 0; x < 10; ++x) 
-    fprintf(stderr, ", lk%x=%i, ", x, g->lk[x]);
+  if (tid >= 0)
+    {
+      khint_t k;
+      khash_t(i) *h = idx->index[tid];
+      k = kh_get(i, h, BAM_MAX_BIN);
 
-  fprintf(stderr,
-	  "maqcns: het_rate=%f, theta=%f, n_hap=%i, cap_mapQ=%i, errmod=%i, min_baseQ=%i, eta=%f, q_r=%f, aux_max=%i",
-	  c->het_rate,
-	  c->theta,
-	  c->n_hap,
-	  c->cap_mapQ,
-	  c->errmod,
-	  c->min_baseQ,
-	  c->eta,
-	  c->q_r,
-	  c->aux->max);
-  
-  for (x = 0; x < c->aux->max; ++x)
-    {
-      fprintf(stderr, ", info-%i=%i ", x, c->aux->info[x]);
-      if (c->aux->info[x] == 0) break;
+      if (k != kh_end(h))
+	return kh_val(h, k).list[1].v;
+      else
+	return 0;
     }
-  
-  for (x = 0; x < c->aux->max; ++x)
-    {
-      fprintf(stderr, ", info16-%i=%i ", x, c->aux->info16[x]);
-      if (c->aux->info16[x] == 0) break;
-    }
+
+  return idx->n_no_coor;
 }
+
+/* uint32_t pysam_glf_depth( glf1_t * g ) */
+/* { */
+/*   return g->depth; */
+/* } */
+
+
+/* void pysam_dump_glf( glf1_t * g, bam_maqcns_t * c ) */
+/* { */
+/*   int x = 0; */
+/*   fprintf(stderr, */
+/* 	  "glf: ref_base=%i, max_mapQ=%i, min_lk=%i, depth=%i", */
+/* 	  g->ref_base, */
+/* 	  g->max_mapQ, */
+/* 	  g->min_lk, */
+/* 	  g->depth ); */
+
+/*   for (x = 0; x < 10; ++x)  */
+/*     fprintf(stderr, ", lk%x=%i, ", x, g->lk[x]); */
+
+/*   fprintf(stderr, */
+/* 	  "maqcns: het_rate=%f, theta=%f, n_hap=%i, cap_mapQ=%i, errmod=%i, min_baseQ=%i, eta=%f, q_r=%f, aux_max=%i", */
+/* 	  c->het_rate, */
+/* 	  c->theta, */
+/* 	  c->n_hap, */
+/* 	  c->cap_mapQ, */
+/* 	  c->errmod, */
+/* 	  c->min_baseQ, */
+/* 	  c->eta, */
+/* 	  c->q_r, */
+/* 	  c->aux->max); */
+  
+/*   for (x = 0; x < c->aux->max; ++x) */
+/*     { */
+/*       fprintf(stderr, ", info-%i=%i ", x, c->aux->info[x]); */
+/*       if (c->aux->info[x] == 0) break; */
+/*     } */
+  
+/*   for (x = 0; x < c->aux->max; ++x) */
+/*     { */
+/*       fprintf(stderr, ", info16-%i=%i ", x, c->aux->info16[x]); */
+/*       if (c->aux->info16[x] == 0) break; */
+/*     } */
+/* } */
 
 
   
@@ -234,22 +282,30 @@ void pysam_dump_glf( glf1_t * g, bam_maqcns_t * c )
 // command line within python.
 // taken from the main function in bamtk.c
 // added code to reset getopt
-extern int main_samview(int argc, char *argv[]);
-extern int main_import(int argc, char *argv[]);
-extern int bam_pileup(int argc, char *argv[]);
-extern int bam_merge(int argc, char *argv[]);
-extern int bam_sort(int argc, char *argv[]);
-extern int bam_index(int argc, char *argv[]);
-extern int faidx_main(int argc, char *argv[]);
-extern int bam_mating(int argc, char *argv[]);
-extern int bam_rmdup(int argc, char *argv[]);
-extern int glf3_view_main(int argc, char *argv[]);
-extern int bam_flagstat(int argc, char *argv[]);
-extern int bam_fillmd(int argc, char *argv[]);
+int bam_taf2baf(int argc, char *argv[]);
+int bam_mpileup(int argc, char *argv[]);
+int bam_merge(int argc, char *argv[]);
+int bam_index(int argc, char *argv[]);
+int bam_sort(int argc, char *argv[]);
+int bam_tview_main(int argc, char *argv[]);
+int bam_mating(int argc, char *argv[]);
+int bam_rmdup(int argc, char *argv[]);
+int bam_flagstat(int argc, char *argv[]);
+int bam_fillmd(int argc, char *argv[]);
+int bam_idxstats(int argc, char *argv[]);
+int main_samview(int argc, char *argv[]);
+int main_import(int argc, char *argv[]);
+int main_reheader(int argc, char *argv[]);
+int main_cut_target(int argc, char *argv[]);
+int main_phase(int argc, char *argv[]);
+int main_cat(int argc, char *argv[]);
+int main_depth(int argc, char *argv[]);
+int main_bam2fq(int argc, char *argv[]);
+int faidx_main(int argc, char *argv[]);
 
 int pysam_dispatch(int argc, char *argv[] )
 {
-
+  extern int optind;
 #ifdef _WIN32
   setmode(fileno(stdout), O_BINARY);
   setmode(fileno(stdin),  O_BINARY);
@@ -257,28 +313,32 @@ int pysam_dispatch(int argc, char *argv[] )
   knet_win32_init();
 #endif
 #endif
-
-  extern int optind;
   
-  // reset getop
+  // reset getopt
   optind = 1;
 
   if (argc < 2) return 1;
 
   if (strcmp(argv[1], "view") == 0) return main_samview(argc-1, argv+1);
   else if (strcmp(argv[1], "import") == 0) return main_import(argc-1, argv+1);
-  else if (strcmp(argv[1], "pileup") == 0) return bam_pileup(argc-1, argv+1);
+  else if (strcmp(argv[1], "mpileup") == 0) return bam_mpileup(argc-1, argv+1);
   else if (strcmp(argv[1], "merge") == 0) return bam_merge(argc-1, argv+1);
   else if (strcmp(argv[1], "sort") == 0) return bam_sort(argc-1, argv+1);
-  else if (strcmp(argv[1], "index") == 0) return bam_index(argc-1, argv+1); 
+  else if (strcmp(argv[1], "index") == 0) return bam_index(argc-1, argv+1);
   else if (strcmp(argv[1], "faidx") == 0) return faidx_main(argc-1, argv+1);
+  else if (strcmp(argv[1], "idxstats") == 0) return bam_idxstats(argc-1, argv+1);
   else if (strcmp(argv[1], "fixmate") == 0) return bam_mating(argc-1, argv+1);
   else if (strcmp(argv[1], "rmdup") == 0) return bam_rmdup(argc-1, argv+1);
-  else if (strcmp(argv[1], "glfview") == 0) return glf3_view_main(argc-1, argv+1);
   else if (strcmp(argv[1], "flagstat") == 0) return bam_flagstat(argc-1, argv+1);
   else if (strcmp(argv[1], "calmd") == 0) return bam_fillmd(argc-1, argv+1);
   else if (strcmp(argv[1], "fillmd") == 0) return bam_fillmd(argc-1, argv+1);
-
+  else if (strcmp(argv[1], "reheader") == 0) return main_reheader(argc-1, argv+1);
+  else if (strcmp(argv[1], "cat") == 0) return main_cat(argc-1, argv+1);
+  else if (strcmp(argv[1], "targetcut") == 0) return main_cut_target(argc-1, argv+1);
+  else if (strcmp(argv[1], "phase") == 0) return main_phase(argc-1, argv+1);
+  else if (strcmp(argv[1], "depth") == 0) return main_depth(argc-1, argv+1);
+  else if (strcmp(argv[1], "bam2fq") == 0) return main_bam2fq(argc-1, argv+1);
+  
 #if _CURSES_LIB != 0
   else if (strcmp(argv[1], "tview") == 0) return bam_tview_main(argc-1, argv+1);
 #endif
@@ -312,12 +372,14 @@ bam1_t * pysam_bam_update( bam1_t * b,
 			   uint8_t * pos )
 {
   int d = nbytes_new-nbytes_old;
+  int new_size;
+  size_t offset;
 
   // no change
   if (d == 0) return b;
 
-  int new_size = d + b->data_len;
-  size_t offset = pos - b->data;
+  new_size = d + b->data_len;
+  offset = pos - b->data;
 
   //printf("d=%i, old=%i, new=%i, old_size=%i, new_size=%i\n",
   // d, nbytes_old, nbytes_new, b->data_len, new_size);

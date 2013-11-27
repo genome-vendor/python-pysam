@@ -2,7 +2,8 @@
 
 /* The MIT License
 
-   Copyright (c) 2008 Genome Research Ltd (GRL).
+   Copyright (c) 2008 by Genome Research Ltd (GRL).
+                 2010 by Attractive Chaos <attractor@live.co.uk>
 
    Permission is hereby granted, free of charge, to any person obtaining
    a copy of this software and associated documentation files (the
@@ -25,11 +26,9 @@
    SOFTWARE.
 */
 
-/* Contact: Heng Li <lh3@sanger.ac.uk> */
-
 /* Probably I will not do socket programming in the next few years and
    therefore I decide to heavily annotate this file, for Linux and
-   Windows as well.  -lh3 */
+   Windows as well.  -ac */
 
 #include <time.h>
 #include <stdio.h>
@@ -92,7 +91,7 @@ static int socket_connect(const char *host, const char *port)
 
 	int on = 1, fd;
 	struct linger lng = { 0, 0 };
-	struct addrinfo hints, *res;
+	struct addrinfo hints, *res = 0;
 	memset(&hints, 0, sizeof(struct addrinfo));
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;

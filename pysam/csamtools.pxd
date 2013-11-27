@@ -1,4 +1,3 @@
-
 cdef extern from "string.h":
   ctypedef int size_t
   void *memcpy(void *dst,void *src,size_t len)
@@ -71,7 +70,6 @@ cdef extern from "stdint.h":
   ctypedef int uint8_t
   ctypedef int uint64_t
 
-
 cdef extern from "bam.h":
 
   # constants
@@ -128,7 +126,8 @@ cdef extern from "bam.h":
      char *text
 
   ctypedef struct bam_index_t:
-      pass
+      int32_t n
+      uint64_t n_no_coor
 
   ctypedef struct bam_plbuf_t:
       pass
@@ -205,6 +204,7 @@ cdef extern from "bam.h":
   void bam_plp_set_mask(bam_plp_t iter, int mask)
   void bam_plp_reset(bam_plp_t iter)
   void bam_plp_destroy(bam_plp_t iter)
+  void bam_plp_set_maxcnt(bam_plp_t iter, int maxcnt)
 
   ##################################################
 
@@ -236,6 +236,9 @@ cdef extern from "bam.h":
 
   uint32_t bam_calend(bam1_core_t *c, uint32_t *cigar)
 
+cdef extern from *:
+    ctypedef char* const_char_ptr "const char*"
+
 cdef extern from "sam.h":
 
   ctypedef struct samfile_t_un:
@@ -248,7 +251,7 @@ cdef extern from "sam.h":
      samfile_t_un x
      bam_header_t *header
 
-  samfile_t *samopen( char *fn, char * mode, void *aux)
+  samfile_t *samopen( const_char_ptr fn, char * mode, void *aux)
 
   int sampileup( samfile_t *fp, int mask, bam_pileup_f func, void *data)
 
@@ -262,77 +265,67 @@ cdef extern from "sam.h":
   int bam_cap_mapQ(bam1_t *b, char *ref, int thres)
 
 
-cdef extern from "glf.h":
-   ctypedef struct glf1_t:
-      pass
+#cdef extern from "glf.h":
+#   ctypedef struct glf1_t:
+#      pass
 
-#      unsigned char ref_base, dummy
-#      unsigned char max_mapQ 
-#      unsigned char lk[10]   
-#      unsigned int min_lk, depth
-#      unsigned char ref_base:4, dummy:4
-#      unsigned char max_mapQ 
-#      unsigned char lk[10]   
-#      unsigned min_lk:8, depth:24; 
+#cdef extern from "bam_maqcns.h":
+#
+#  ctypedef struct bam_maqcns_t:
+#     float het_rate, theta
+#     int n_hap, cap_mapQ, errmod, min_baseQ
+#     float eta, q_r
+#     double *fk, *coef
+#     double *lhet
+#     void *aux
 
+#  glf1_t *bam_maqcns_glfgen(int n, 
+#                            bam_pileup1_t *pl, 
+#                            uint8_t ref_base, 
+#                            bam_maqcns_t *bm)
 
-cdef extern from "bam_maqcns.h":
-
-  ctypedef struct bam_maqcns_t:
-     float het_rate, theta
-     int n_hap, cap_mapQ, errmod, min_baseQ
-     float eta, q_r
-     double *fk, *coef
-     double *lhet
-     void *aux
-
-  glf1_t *bam_maqcns_glfgen(int n, 
-                            bam_pileup1_t *pl, 
-                            uint8_t ref_base, 
-                            bam_maqcns_t *bm)
-
-  ctypedef struct bam_maqindel_opt_t:
-      int q_indel
-      float r_indel
-      float r_snp
-      int mm_penalty, indel_err, ambi_thres
+#  ctypedef struct bam_maqindel_opt_t:
+#      int q_indel
+#      float r_indel
+#      float r_snp
+#      int mm_penalty, indel_err, ambi_thres
      
-  uint32_t bam_maqcns_call(int n, bam_pileup1_t *pl, bam_maqcns_t *bm)
-  bam_maqcns_t * bam_maqcns_init()
-  void bam_maqcns_destroy(bam_maqcns_t *bm)
-  void bam_maqcns_prepare(bam_maqcns_t *bm)
+#  uint32_t bam_maqcns_call(int n, bam_pileup1_t *pl, bam_maqcns_t *bm)
+#  bam_maqcns_t * bam_maqcns_init()
+#  void bam_maqcns_destroy(bam_maqcns_t *bm)
+#  void bam_maqcns_prepare(bam_maqcns_t *bm)
   
-  uint32_t glf2cns(glf1_t *g, int q_r)
+#  uint32_t glf2cns(glf1_t *g, int q_r)
 
-  int BAM_ERRMOD_MAQ2
-  int BAM_ERRMOD_MAQ
-  int BAM_ERRMOD_SOAP
+#  int BAM_ERRMOD_MAQ2
+#  int BAM_ERRMOD_MAQ
+#  int BAM_ERRMOD_SOAP
 
-  ctypedef struct bam_maqindel_ret_t: 
-    int indel1
-    int indel2        
-    int cnt1
-    int cnt2
-    int cnt_anti
-    int cnt_ref
-    int cnt_ambi
-    char *s[2]
-    int gt
-    int gl[2]
-    int q_cns
-    int q_ref
+#  ctypedef struct bam_maqindel_ret_t: 
+#    int indel1
+#    int indel2        
+#    int cnt1
+#    int cnt2
+#    int cnt_anti
+#    int cnt_ref
+#    int cnt_ambi
+#    char *s[2]
+#    int gt
+#    int gl[2]
+#    int q_cns
+#    int q_ref
     
-  void bam_maqindel_ret_destroy( bam_maqindel_ret_t * )
+#  void bam_maqindel_ret_destroy( bam_maqindel_ret_t * )
 
-  bam_maqindel_opt_t *bam_maqindel_opt_init()
+#  bam_maqindel_opt_t *bam_maqindel_opt_init()
 
-  bam_maqindel_ret_t * bam_maqindel(int n, 
-  		     int pos, 
-  		     bam_maqindel_opt_t * mi, 
-  		     bam_pileup1_t * pl, 
-		     char *ref,
-		     int _n_types, 
-		     int * _types )
+#  bam_maqindel_ret_t * bam_maqindel(int n, 
+#  		     int pos, 
+#  		     bam_maqindel_opt_t * mi, 
+#  		     bam_pileup1_t * pl, 
+#		     char *ref,
+#		     int _n_types, 
+#		     int * _types )
                                                                
 
 cdef extern from "faidx.h":
@@ -384,6 +377,60 @@ cdef extern from "pysam_util.h":
 
     void pysam_set_stderr( FILE * file )
 
-    uint32_t pysam_glf_depth( glf1_t * g )
+    # return mapped/unmapped reads on tid
+    uint32_t pysam_get_mapped( bam_index_t *idx, int tid )
+    uint32_t pysam_get_unmapped( bam_index_t *idx, int tid )
 
-    void pysam_dump_glf( glf1_t * g, bam_maqcns_t * c )
+#    uint32_t pysam_glf_depth( glf1_t * g )
+
+#    void pysam_dump_glf( glf1_t * g, bam_maqcns_t * c )
+
+# need to declare all C fields and methods here
+cdef class AlignedRead:
+
+    # object that this AlignedRead represents
+    cdef bam1_t * _delegate
+
+cdef class Samfile:
+    cdef char * _filename
+    # pointer to samfile
+    cdef samfile_t * samfile
+    # pointer to index
+    cdef bam_index_t *index
+    # true if file is a bam file
+    cdef int isbam
+    # true if not a file but a stream
+    cdef int isstream
+    # true if file is not on the local filesystem
+    cdef int isremote
+    # current read within iteration
+    cdef bam1_t * b
+    # file opening mode
+    cdef char * mode
+
+    # beginning of read section
+    cdef int64_t start_offset 
+
+    cdef bam_header_t * _buildHeader( self, new_header )
+    cdef bam1_t * getCurrent( self )
+    cdef int cnext(self)
+
+    # write an aligned read
+    cpdef int write( self, AlignedRead read )
+
+    cdef char * _getrname( self, int tid )
+
+cdef class IteratorRow:
+    pass
+
+cdef class IteratorRowAll(IteratorRow):
+    cdef bam1_t * b
+    cdef samfile_t * fp
+    # true if samfile belongs to this object
+    cdef int owns_samfile
+
+    cdef bam1_t * getCurrent( self )
+
+    cdef int cnext(self)
+
+

@@ -2,6 +2,8 @@ from csamtools import *
 from ctabix import *
 import csamtools
 import ctabix
+from cvcf import *
+import cvcf
 import Pileup
 import sys
 import os
@@ -84,19 +86,31 @@ class SamtoolsDispatcher(object):
 #
 # import is a python reserved word.
 SAMTOOLS_DISPATCH = { 
+    # samtools 'documented' commands
     "view" : ( "view", None ),
     "sort" : ( "sort", None),
-    "samimport": ( "import", None),
-    "pileup" : ( "pileup", ( (("-c",), Pileup.iterate ), ), ),
+    "mpileup" : ( "mpileup", None),
+    "depth" : ("depth", None),
     "faidx" : ("faidx", None),
     "tview" : ("tview", None),
     "index" : ("index", None),
+    "idxstats" : ("idxstats", None),
     "fixmate" : ("fixmate", None),
-    "glfview" : ("glfview", None),
     "flagstat" : ("flagstat", None),
     "calmd" : ("calmd", None),
     "merge" : ("merge", None),  
-    "rmdup" : ("rmdup", None) }
+    "rmdup" : ("rmdup", None),
+    "reheader" : ("reheader", None),
+    "cat" : ("cat", None),
+    "targetcut" : ("targetcut", None),
+    "phase" : ("phase", None),
+    # others
+    "samimport": ( "import", None),
+    "bam2fq" : ("bam2fq", None),
+    # obsolete
+    # "pileup" : ( "pileup", ( (("-c",), Pileup.iterate ), ), ),
+
+ }
 
 # instantiate samtools commands as python functions
 for key, options in SAMTOOLS_DISPATCH.iteritems():
@@ -104,9 +118,11 @@ for key, options in SAMTOOLS_DISPATCH.iteritems():
     globals()[key] = SamtoolsDispatcher(cmd, parser)
 
 # hack to export all the symbols from csamtools
-__all__ = csamtools.__all__ + \
+__all__ = \
+    csamtools.__all__ + \
     ctabix.__all__ + \
+    cvcf.__all__ +\
     [ "SamtoolsError", "SamtoolsDispatcher" ] + list(SAMTOOLS_DISPATCH) +\
-    ["Pileup",] 
+    ["Pileup" ] 
 
 from version import __version__, __samtools_version__
