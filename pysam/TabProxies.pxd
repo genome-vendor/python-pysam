@@ -11,7 +11,6 @@ cdef extern from "stdlib.h":
 
 cdef extern from "Python.h":
     ctypedef struct FILE
-    FILE* PyFile_AsFile(object)
     char *fgets(char *str, int size, FILE *ifile)
     int feof(FILE *stream)
     size_t strlen(char *s)
@@ -61,19 +60,11 @@ cdef class TupleProxy:
 cdef class GTFProxy( TupleProxy) :
 
     cdef:
-        char * contig
-        char * source
-        char * feature
-        uint32_t start
-        uint32_t end
-        char * score
-        char * strand
-        char * frame
-        char * attributes
+        char * _attributes
         cdef bint hasOwnAttributes
 
     cdef int getMaxFields( self, size_t nbytes )
-    cdef update( self, char * buffer, size_t nbytes )
+    cdef char * getAttributes( self )
 
 cdef class NamedTupleProxy( TupleProxy) :
     pass

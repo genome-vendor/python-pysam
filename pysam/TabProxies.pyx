@@ -1,5 +1,71 @@
 import types
-from cpython cimport PyString_FromStringAndSize, PyString_AsString, PyString_AS_STRING
+import sys
+import string
+
+from cpython.version cimport PY_MAJOR_VERSION
+
+from cpython cimport PyErr_SetString, PyBytes_Check, PyUnicode_Check, PyBytes_FromStringAndSize
+
+cdef from_string_and_size(char* s, size_t length):
+    if PY_MAJOR_VERSION < 3:
+        return s[:length]
+    else:
+        return s[:length].decode("ascii")
+
+# filename encoding (copied from lxml.etree.pyx)
+cdef str _FILENAME_ENCODING
+_FILENAME_ENCODING = sys.getfilesystemencoding()
+if _FILENAME_ENCODING is None:
+    _FILENAME_ENCODING = sys.getdefaultencoding()
+if _FILENAME_ENCODING is None:
+    _FILENAME_ENCODING = 'ascii'
+
+cdef bytes _my_encodeFilename(object filename):
+    u"""Make sure a filename is 8-bit encoded (or None).
+    """
+    if filename is None:
+        return None
+    elif PyBytes_Check(filename):
+        return filename
+    elif PyUnicode_Check(filename):
+        return filename.encode(_FILENAME_ENCODING)
+    else:
+        raise TypeError, u"Argument must be string or unicode."
+
+cdef bytes _force_bytes(object s):
+    u"""convert string or unicode object to bytes, assuming ascii encoding.
+    """
+    if PY_MAJOR_VERSION < 3:
+        return s
+    elif s is None:
+        return None
+    elif PyBytes_Check(s):
+        return s
+    elif PyUnicode_Check(s):
+        return s.encode('ascii')
+    else:
+        raise TypeError, u"Argument must be string, bytes or unicode."
+
+cdef inline bytes _force_cmdline_bytes(object s):
+    return _force_bytes(s)
+
+cdef _charptr_to_str(char* s):
+    if PY_MAJOR_VERSION < 3:
+        return s
+    else:
+        return s.decode("ascii")
+
+cdef _force_str(object s):
+    """Return s converted to str type of current Python (bytes in Py2, unicode in Py3)"""
+    if s is None:
+        return None
+    if PY_MAJOR_VERSION < 3:
+        return s
+    elif PyBytes_Check(s):
+        return s.decode('ascii')
+    else:
+        # assume unicode
+        return s
 
 cdef char * nextItem( char * buffer ):
     cdef char * pos
@@ -25,6 +91,7 @@ cdef class TupleProxy:
     Access to individual fields is via the [] operator.
     
     Only read-only access is implemented.
+
     '''
 
     def __cinit__(self ): 
@@ -65,7 +132,9 @@ cdef class TupleProxy:
         self.update( buffer, nbytes )
 
     cdef copy( self, char * buffer, size_t nbytes ):
-        '''start presenting buffer.
+        '''start presenting buffer of size *nbytes*.
+
+        Buffer is a '\0'-terminated string without the '\n'.
 
         Take a copy of buffer.
         '''
@@ -86,20 +155,35 @@ cdef class TupleProxy:
     cdef update( self, char * buffer, size_t nbytes ):
         '''update internal data.
 
+        *buffer* is a \0 terminated string.
+
+        *nbytes* is the number of bytes in buffer (excluding
+        the \0)
+
         Update starts work in buffer, thus can be used
         to collect any number of fields until nbytes
         is exhausted.
 
-        If max_fields is set, the number of fields is initialized to max_fields.
-
+        If max_fields is set, the number of fields is initialized to 
+        max_fields.
         '''
         cdef char * pos
         cdef char * old_pos
         cdef int field
         cdef int max_fields, x
 
+        assert strlen(buffer) == nbytes
+
         if buffer[nbytes] != 0:
             raise ValueError( "incomplete line at %s" % buffer )
+
+        #################################
+        # remove line breaks and feeds and update number of bytes
+        x = nbytes - 1
+        while x > 0 and (buffer[x] == '\n' or buffer[x] == '\r'): 
+            buffer[x] = '\0'
+            x -= 1
+        self.nbytes = x + 1
 
         #################################
         # clear data
@@ -133,7 +217,7 @@ cdef class TupleProxy:
             pos += 1
             self.fields[field] = pos
             field += 1
-            if field >= max_fields:
+            if field > max_fields:
                 raise ValueError("row too large - more than %i fields" % max_fields )
             nbytes -= pos - old_pos
             if nbytes < 0: break
@@ -149,7 +233,7 @@ cdef class TupleProxy:
         i += self.offset
         if i >= self.nfields:
             raise IndexError( "list index out of range %i >= %i" % (i, self.nfields ))
-        return self.fields[i]
+        return self.fields[i] 
 
     def __getitem__( self, key ):
         if type(key) == int: return self._getindex( key )
@@ -177,7 +261,8 @@ cdef class TupleProxy:
             return
 
         # conversion with error checking
-        cdef char * tmp = PyString_AsString( value )
+        value = _force_bytes(value)
+        cdef char * tmp = <char*>value
         self.fields[idx] = <char*>malloc( (strlen( tmp ) + 1) * sizeof(char) )
         if self.fields[idx] == NULL:
             raise ValueError("out of memory" )
@@ -213,7 +298,10 @@ cdef class TupleProxy:
         # copy and replace \0 bytes with \t characters
         if self.is_modified:
             # todo: treat NULL values
-            return "\t".join( [StrOrEmpty( self.fields[x]) for x in xrange(0, self.nfields ) ] )
+            result = []
+            for x in xrange( 0, self.nfields ):
+                result.append( StrOrEmpty( self.fields[x]).decode('ascii') )
+            return "\t".join( result )
         else:
             cpy = <char*>calloc( sizeof(char), self.nbytes+1 )
             if cpy == NULL:
@@ -221,9 +309,9 @@ cdef class TupleProxy:
             memcpy( cpy, self.data, self.nbytes+1)
             for x from 0 <= x < self.nbytes:
                 if cpy[x] == '\0': cpy[x] = '\t'
-            result = PyString_FromStringAndSize(cpy, self.nbytes)
+            result = cpy[:self.nbytes]
             free(cpy)
-            return result
+            return result.decode('ascii')
 
 def toDot( v ):
     '''convert value to '.' if None'''
@@ -248,114 +336,88 @@ cdef class GTFProxy( TupleProxy ):
 
     The only exception is the attributes field when set from
     a dictionary - this field will manage its own memory.
-
     '''
 
     def __cinit__(self ): 
         # automatically calls TupleProxy.__cinit__
         self.hasOwnAttributes = False
+        self._attributes = NULL
 
     def __dealloc__(self):
         # automatically calls TupleProxy.__dealloc__
         if self.hasOwnAttributes:
-            free(self.attributes)
+            free(self._attributes)
 
     cdef int getMaxFields( self, size_t nbytes ):
         '''return max number of fields.'''
         return 9
 
-    cdef update( self, char * buffer, size_t nbytes ):
-        '''update internal data.
-
-        nbytes does not include the terminal '\0'.
-        '''
-        cdef int end
-        cdef char * cstart, * cend, * cscore
-        self.contig = buffer
-        cdef char * pos
-
-        if buffer[nbytes] != 0:
-            raise ValueError( "incomplete line at %s" % buffer )
-        
-        self.source = pos = nextItem( buffer )
-        self.feature = pos = nextItem( pos )
-        cstart = pos = nextItem( pos )
-        cend = pos = nextItem( pos )
-        self.score = pos = nextItem( pos )
-        self.strand = pos = nextItem( pos )
-        self.frame = pos = nextItem( pos )
-        self.attributes = pos = nextItem( pos )
-
-        self.start = atoi( cstart ) - 1
-        self.end = atoi( cend )
-        self.nfields = 9
-       
     property contig:
        '''contig of feature.'''
-       def __get__( self ): return self.contig
-       def __set__( self, value ): 
-           self.is_modified = True
-           self.contig = value
-
-    property feature:
-       '''feature name.'''
-       def __get__( self ): return self.feature
-       def __set__( self, value ): 
-           self.is_modified = True
-           self.feature = value
+       def __get__( self ): return self._getindex( 0 )
+       def __set__( self, value ): self._setindex( 0, value )
 
     property source:
        '''feature source.'''
-       def __get__( self ): return self.source
-       def __set__( self, value ): 
-           self.is_modified = True
-           self.source = value
+       def __get__( self ): return self._getindex( 1 )
+       def __set__( self, value ): self._setindex( 1, value )
+
+    property feature:
+       '''feature name.'''
+       def __get__( self ): return self._getindex( 2 )
+       def __set__( self, value ): self._setindex( 2, value )
 
     property start:
        '''feature start (in 0-based open/closed coordinates).'''
-       def __get__( self ): return self.start
-       def __set__( self, value ): 
-           self.is_modified = True
-           self.start = value
+       def __get__( self ): return int( self._getindex( 3 )) - 1
+       def __set__( self, value ): self._setindex( 3, str(value+1) )
 
     property end:
        '''feature end (in 0-based open/closed coordinates).'''
-       def __get__( self ): return self.end
-       def __set__( self, value ): 
-           self.is_modified = True
-           self.end = value
+       def __get__( self ): return int( self._getindex( 4 ) )
+       def __set__( self, value ): self._setindex( 4, str(value) )
 
     property score:
        '''feature score.'''
        def __get__( self ): 
-           if self.score[0] == '.' and self.score[1] == '\0' :
+           v = self._getindex(5)
+           if v == "" or v[0] == '.':
                return None
            else:
-               return atof(self.score)
-       def __set__( self, value ): 
-           self.is_modified = True
-           self.score = value
+               return float(v)
+
+       def __set__( self, value ): self._setindex( 5, value )
 
     property strand:
        '''feature strand.'''
-       def __get__( self ): return self.strand
-       def __set__( self, value ): 
-           self.is_modified = True
-           self.strand = value
+       def __get__( self ): return self._getindex( 6 )
+       def __set__( self, value ): self._setindex( 6, value )
 
     property frame:
        '''feature frame.'''
-       def __get__( self ): return self.frame
-       def __set__( self, value ): 
-           self.is_modified = True
-           self.frame = value
+       def __get__( self ): return self._getindex( 7 )
+       def __set__( self, value ): self._setindex( 7, value )
 
     property attributes:
        '''feature attributes (as a string).'''
-       def __get__( self ): return self.attributes
+       def __get__( self ): 
+           if self.hasOwnAttributes:
+               return self._attributes
+           else:
+               return self._getindex( 8 )
        def __set__( self, value ): 
-           self.is_modified = True
-           self.attributes = value
+           if self.hasOwnAttributes:
+               free(self._attributes)
+               self._attributes = NULL
+               self.hasOwnAttributes = False
+           self._setindex(8, value )
+
+    cdef char * getAttributes( self ):
+       '''return pointer to attributes.'''
+       if self.hasOwnAttributes:
+           return self._attributes
+       else:
+           return self.fields[ 8 ]
 
     def asDict( self ):
         """parse attributes - return as dict
@@ -365,24 +427,26 @@ cdef class GTFProxy( TupleProxy ):
         attributes = self.attributes
 
         # separate into fields
-        fields = [ x.strip() for x in attributes.split(";")[:-1]]
+        fields = [x.strip() for x in attributes.split(";")[:-1]]
         
         result = {}
 
         for f in fields:
-            
-            d = [ x.strip() for x in f.split(" ")]
-            
+            # split at most once in order to avoid separating
+            # multi-word values
+            d = [x.strip() for x in string.split(f, " ", maxsplit=1)]
+
             n,v = d[0], d[1]
-            if len(d) > 2: v = d[1:]
+            if len(d) > 2:
+                v = d[1:]
 
             if v[0] == '"' and v[-1] == '"':
                 v = v[1:-1]
             else:
                 ## try to convert to a value
                 try:
-                    v = float( v )
-                    v = int( v )
+                    v = float(v)
+                    v = int(v)
                 except ValueError:
                     pass
                 except TypeError:
@@ -398,12 +462,12 @@ cdef class GTFProxy( TupleProxy ):
         cdef int l
 
         # clean up if this field is set twice
-        if self.hasOwnAttributes:
-            free(self.attributes)
+        if self.hasOwnAttributes: 
+            free(self._attributes)
 
         aa = []
         for k,v in d.items():
-            if type(v) == types.StringType:
+            if type(v) in types.StringTypes:
                 aa.append( '%s "%s"' % (k,v) )
             else:
                 aa.append( '%s %s' % (k,str(v)) )
@@ -411,10 +475,10 @@ cdef class GTFProxy( TupleProxy ):
         a = "; ".join( aa ) + ";"
         p = a
         l = len(a)
-        self.attributes = <char *>calloc( l + 1, sizeof(char) )
-        if self.attributes == NULL:
+        self._attributes = <char *>calloc( l + 1, sizeof(char) )
+        if self._attributes == NULL:
             raise ValueError("out of memory" )
-        memcpy( self.attributes, p, l )
+        memcpy( self._attributes, p, l )
 
         self.hasOwnAttributes = True
         self.is_modified = True
@@ -461,28 +525,46 @@ cdef class GTFProxy( TupleProxy ):
         Only called if there *isn't* an attribute with this name
         """
         cdef char * start
-        cdef char * query 
+        cdef char * query
         cdef char * cpy
         cdef char * end
         cdef int l
-        query = item
-        
-        start = strstr( self.attributes, query)
+
+        #
+        # important to use the getAttributes function.
+        # Using the self.attributes property to access
+        # the attributes caused a hard-to-trace bug
+        # in which fields in the attribute string were
+        # set to 0.
+        # Running through valgrind complained that
+        # memory was accessed in the memory field
+        # that has been released. It is not clear
+        # why this happened and might be a cython bug
+        # (Version 0.16). The valgrind warnings
+        # disappeard after accessing the C data structures
+        # directly and so did the bug.
+        cdef char * attributes = self.getAttributes()
+
+        r = _force_bytes(item)
+        query = r
+        start = strstr( attributes, query)
+
         if start == NULL:
             raise AttributeError("'GTFProxy' has no attribute '%s'" % item )
 
         start += strlen(query) + 1
         # skip gaps before
         while start[0] == ' ': start += 1
+
         if start[0] == '"':
             start += 1
             end = start
             while end[0] != '\0' and end[0] != '"': end += 1
             l = end - start
-            result = PyString_FromStringAndSize( start, l )
+            result = _force_str( PyBytes_FromStringAndSize( start, l ) )
             return result
         else:
-            return start
+            return _force_str( start )
 
     def setAttribute( self, name, value ):
         '''convenience method to set an attribute.'''
@@ -515,18 +597,18 @@ cdef class BedProxy( NamedTupleProxy ):
     This class represents a GTF entry for fast read-access.
     '''
     map_key2field = { 
-        'contig' : (0, str),
+        'contig' : (0, bytes),
         'start' : (1, int),
         'end' : (2, int),
-        'name' : (3, str),
+        'name' : (3, bytes),
         'score' : (4, float),
-        'strand' : (5, str),
-        'thickStart' : (6,int ),
-        'thickEnd' : (7,int),
-        'itemRGB' : (8,str),
-        'blockCount': (9,int),
-        'blockSizes': (10,str),
-        'blockStarts': (11,str), } 
+        'strand' : (5, bytes),
+        'thickStart' : (6, int ),
+        'thickEnd' : (7, int),
+        'itemRGB' : (8, bytes),
+        'blockCount': (9, int),
+        'blockSizes': (10, bytes),
+        'blockStarts': (11, bytes), } 
 
     cdef int getMaxFields( self, size_t nbytes ):
         '''return max number of fields.'''
@@ -581,15 +663,15 @@ cdef class VCFProxy( NamedTupleProxy ):
     The genotypes are accessed via index.
     '''
     map_key2field = { 
-        'contig' : (0, str),
+        'contig' : (0, bytes),
         'pos' : (1, int),
-        'id' : (2, str),
-        'ref' : (3, str),
-        'alt' : (4, str),
-        'qual' : (5, str),
-        'filter' : (6,str),
-        'info' : (7,str),
-        'format' : (8,str) }
+        'id' : (2, bytes),
+        'ref' : (3, bytes),
+        'alt' : (4, bytes),
+        'qual' : (5, bytes),
+        'filter' : (6, bytes),
+        'info' : (7, bytes),
+        'format' : (8, bytes) }
 
     def __cinit__(self ): 
         # automatically calls TupleProxy.__cinit__
@@ -608,6 +690,7 @@ cdef class VCFProxy( NamedTupleProxy ):
         self.pos = atoi( self.fields[1] ) - 1
                              
     def __len__(self):
+        '''return number of genotype fields.'''
         return max(0, self.nfields - 9)
 
     property pos:

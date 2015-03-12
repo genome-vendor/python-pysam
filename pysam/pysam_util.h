@@ -2,8 +2,18 @@
 #define PYSAM_UTIL_H
 
 //////////////////////////////////////////////////////////////////
-// set pysam standard error to point to stream
-FILE * pysam_set_stderr( FILE * f );
+/*! set pysam standard error to point to file descriptor
+
+  Setting the stderr will close the previous stderr.
+ */
+FILE * pysam_set_stderr( int fd );
+
+//////////////////////////////////////////////////////////////////
+/*! set pysam standard error to /dev/null.
+  
+  Unsetting the stderr will close the previous stderr.
+ */
+void pysam_unset_stderr();
 
 //////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////
@@ -61,5 +71,8 @@ uint32_t pysam_get_unmapped( const bam_index_t *idx, const int tid );
 /* #include "bam_maqcns.h" */
 /* void pysam_dump_glf( glf1_t * g, bam_maqcns_t * c ); */
 
+
+// return size of auxilliary type
+// int bam_aux_type2size(int x);
 
 #endif

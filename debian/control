@@ -2,7 +2,7 @@ Source: pysam
 Maintainer: Andreas Heger <andreas.heger@gmail.com>
 Section: python
 Priority: optional
-Build-Depends: python-setuptools (>= 0.6b3), python-all-dev, debhelper (>= 7), python-support (>= 0.8.4)
+Build-Depends: python-setuptools (>= 0.6b3), python-dev, cython, zlib1g-dev, debhelper (>= 7)
 Standards-Version: 3.7.2
 
 Package: python-pysam

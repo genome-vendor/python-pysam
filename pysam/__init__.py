@@ -1,10 +1,10 @@
-from csamtools import *
-from ctabix import *
-import csamtools
-import ctabix
-from cvcf import *
-import cvcf
-import Pileup
+from pysam.csamtools import *
+from pysam.ctabix import *
+import pysam.csamtools as csamtools
+import pysam.ctabix as ctabix
+from pysam.cvcf import *
+import pysam.cvcf as cvcf
+import pysam.Pileup as Pileup
 import sys
 import os
 
@@ -48,7 +48,7 @@ class SamtoolsDispatcher(object):
         '''execute a samtools command
         '''
         retval, stderr, stdout = csamtools._samtools_dispatch( self.dispatch, args )
-        if retval: raise SamtoolsError( "\n".join( stderr ) )
+        if retval: raise SamtoolsError( 'csamtools returned with error %i: %s' % (retval, "\n".join( stderr ) ))
         self.stderr = stderr
         # samtools commands do not propagate the return code correctly.
         # I have thus added this patch to throw if there is output on stderr.
@@ -107,13 +107,17 @@ SAMTOOLS_DISPATCH = {
     # others
     "samimport": ( "import", None),
     "bam2fq" : ("bam2fq", None),
+    "pad2unpad" : ("pad2unpad", None),
+    "depad" : ("pad2unpad", None),
+    "bedcov" : ("bedcov", None),
+    "bamshuf" : ("bamshuf", None),
     # obsolete
     # "pileup" : ( "pileup", ( (("-c",), Pileup.iterate ), ), ),
 
  }
 
 # instantiate samtools commands as python functions
-for key, options in SAMTOOLS_DISPATCH.iteritems():
+for key, options in SAMTOOLS_DISPATCH.items():
     cmd, parser = options
     globals()[key] = SamtoolsDispatcher(cmd, parser)
 
@@ -125,4 +129,17 @@ __all__ = \
     [ "SamtoolsError", "SamtoolsDispatcher" ] + list(SAMTOOLS_DISPATCH) +\
     ["Pileup" ] 
 
-from version import __version__, __samtools_version__
+from pysam.version import __version__, __samtools_version__
+
+###########################################################
+# Utility functions for compilation
+def get_include():
+    '''return a list of include directories.'''
+    dirname = os.path.abspath(os.path.join(os.path.dirname(__file__)))
+    return [ dirname,
+             os.path.join(dirname, 'include', 'samtools'),
+             os.path.join(dirname, 'include', 'tabix') ]
+
+def get_defines():
+    '''return a list of defined compilation parameters.'''
+    return [('_FILE_OFFSET_BITS','64'), ('_USE_KNETFILE','')]
