@@ -1,6 +1,6 @@
 Metadata-Version: 1.1
 Name: pysam
-Version: 0.6
+Version: 0.7.8
 Summary: pysam
 Home-page: http://code.google.com/p/pysam/
 Author: Andreas Heger
@@ -13,4 +13,4 @@ Description:
         
         
 Platform: ALL
-Requires: cython (>=0.12)
+Requires: cython (>=0.17)

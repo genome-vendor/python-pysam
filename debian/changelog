@@ -1,3 +1,9 @@
+pysam (0.7.8-1) lucid-genome-development; urgency=low
+
+  * pysam 0.7.8
+
+ -- Michael Kiwala <mkiwala@wustl.edu>  Wed, 11 Mar 2015 19:02:46 +0100
+
 pysam (0.6-1) unstable; urgency=low
 
   * source package automatically created by stdeb 0.5.1

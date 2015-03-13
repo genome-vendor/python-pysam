@@ -8,6 +8,9 @@
 #include "pysam_util.h"
 #include "errmod.h" // for pysam_dump 
 
+// for sequence parsing
+#include "kseq.h"
+
 #ifndef inline
 #define inline __inline
 #endif
@@ -16,10 +19,19 @@
 #include "stdio.h"
 FILE * pysamerr = NULL;
 
-FILE * pysam_set_stderr( FILE * f )
+FILE * pysam_set_stderr(int fd)
 {
-  pysamerr = f;
-  return f;
+  if (pysamerr != NULL)
+    fclose(pysamerr);
+  pysamerr = fdopen(fd, "w");
+  return pysamerr;
+}
+
+void pysam_unset_stderr()
+{
+  if (pysamerr != NULL)
+    fclose(pysamerr);
+  pysamerr = fopen("/dev/null", "w");
 }
 
 // #######################################################
@@ -197,7 +209,9 @@ typedef struct __bmc_aux_t {
 // If tid < 0, return mapped reads without a coordinate (0)
 uint32_t pysam_get_mapped( const bam_index_t *idx, const int tid )
 {
-
+  // return no values if index data not present
+  if (idx==NULL) return 0;
+  
   if (tid >= 0)
     {
       khint_t k;
@@ -301,7 +315,12 @@ int main_phase(int argc, char *argv[]);
 int main_cat(int argc, char *argv[]);
 int main_depth(int argc, char *argv[]);
 int main_bam2fq(int argc, char *argv[]);
+int main_pad2unpad(int argc, char *argv[]);
+int main_bedcov(int argc, char *argv[]);
+int main_bamshuf(int argc, char *argv[]);
+
 int faidx_main(int argc, char *argv[]);
+
 
 int pysam_dispatch(int argc, char *argv[] )
 {
@@ -313,41 +332,48 @@ int pysam_dispatch(int argc, char *argv[] )
   knet_win32_init();
 #endif
 #endif
-  
+
   // reset getopt
   optind = 1;
 
   if (argc < 2) return 1;
-
-  if (strcmp(argv[1], "view") == 0) return main_samview(argc-1, argv+1);
-  else if (strcmp(argv[1], "import") == 0) return main_import(argc-1, argv+1);
-  else if (strcmp(argv[1], "mpileup") == 0) return bam_mpileup(argc-1, argv+1);
-  else if (strcmp(argv[1], "merge") == 0) return bam_merge(argc-1, argv+1);
-  else if (strcmp(argv[1], "sort") == 0) return bam_sort(argc-1, argv+1);
-  else if (strcmp(argv[1], "index") == 0) return bam_index(argc-1, argv+1);
-  else if (strcmp(argv[1], "faidx") == 0) return faidx_main(argc-1, argv+1);
-  else if (strcmp(argv[1], "idxstats") == 0) return bam_idxstats(argc-1, argv+1);
-  else if (strcmp(argv[1], "fixmate") == 0) return bam_mating(argc-1, argv+1);
-  else if (strcmp(argv[1], "rmdup") == 0) return bam_rmdup(argc-1, argv+1);
-  else if (strcmp(argv[1], "flagstat") == 0) return bam_flagstat(argc-1, argv+1);
-  else if (strcmp(argv[1], "calmd") == 0) return bam_fillmd(argc-1, argv+1);
-  else if (strcmp(argv[1], "fillmd") == 0) return bam_fillmd(argc-1, argv+1);
-  else if (strcmp(argv[1], "reheader") == 0) return main_reheader(argc-1, argv+1);
-  else if (strcmp(argv[1], "cat") == 0) return main_cat(argc-1, argv+1);
-  else if (strcmp(argv[1], "targetcut") == 0) return main_cut_target(argc-1, argv+1);
-  else if (strcmp(argv[1], "phase") == 0) return main_phase(argc-1, argv+1);
-  else if (strcmp(argv[1], "depth") == 0) return main_depth(argc-1, argv+1);
-  else if (strcmp(argv[1], "bam2fq") == 0) return main_bam2fq(argc-1, argv+1);
+  int retval = 0;
+  
+  if (strcmp(argv[1], "view") == 0) retval = main_samview(argc-1, argv+1);
+  else if (strcmp(argv[1], "import") == 0) retval = main_import(argc-1, argv+1);
+  else if (strcmp(argv[1], "mpileup") == 0) retval = bam_mpileup(argc-1, argv+1);
+  else if (strcmp(argv[1], "merge") == 0) retval = bam_merge(argc-1, argv+1);
+  else if (strcmp(argv[1], "sort") == 0) retval = bam_sort(argc-1, argv+1);
+  else if (strcmp(argv[1], "index") == 0) retval = bam_index(argc-1, argv+1);
+  else if (strcmp(argv[1], "faidx") == 0) retval = faidx_main(argc-1, argv+1);
+  else if (strcmp(argv[1], "idxstats") == 0) retval = bam_idxstats(argc-1, argv+1);
+  else if (strcmp(argv[1], "fixmate") == 0) retval = bam_mating(argc-1, argv+1);
+  else if (strcmp(argv[1], "rmdup") == 0) retval = bam_rmdup(argc-1, argv+1);
+  else if (strcmp(argv[1], "flagstat") == 0) retval = bam_flagstat(argc-1, argv+1);
+  else if (strcmp(argv[1], "calmd") == 0) retval = bam_fillmd(argc-1, argv+1);
+  else if (strcmp(argv[1], "fillmd") == 0) retval = bam_fillmd(argc-1, argv+1);
+  else if (strcmp(argv[1], "reheader") == 0) retval = main_reheader(argc-1, argv+1);
+  else if (strcmp(argv[1], "cat") == 0) retval = main_cat(argc-1, argv+1);
+  else if (strcmp(argv[1], "targetcut") == 0) retval = main_cut_target(argc-1, argv+1);
+  else if (strcmp(argv[1], "phase") == 0) retval = main_phase(argc-1, argv+1);
+  else if (strcmp(argv[1], "depth") == 0) retval = main_depth(argc-1, argv+1);
+  else if (strcmp(argv[1], "bam2fq") == 0) retval = main_bam2fq(argc-1, argv+1);
+  else if (strcmp(argv[1], "pad2unpad") == 0) retval = main_pad2unpad(argc-1, argv+1);
+  else if (strcmp(argv[1], "depad") == 0) retval = main_pad2unpad(argc-1, argv+1);
+  else if (strcmp(argv[1], "bedcov") == 0) retval = main_bedcov(argc-1, argv+1);
+  else if (strcmp(argv[1], "bamshuf") == 0) retval = main_bamshuf(argc-1, argv+1);
   
 #if _CURSES_LIB != 0
-  else if (strcmp(argv[1], "tview") == 0) return bam_tview_main(argc-1, argv+1);
+  else if (strcmp(argv[1], "tview") == 0) retval = bam_tview_main(argc-1, argv+1);
 #endif
   else 
     {
       fprintf(stderr, "[main] unrecognized command '%s'\n", argv[1]);
       return 1;
     }
-  return 0;
+  fflush( stdout );
+  
+  return retval;
 }
 
 // taken from samtools/bam_import.c
@@ -435,8 +461,59 @@ int pysam_reference2tid( bam_header_t *header, const char * s )
   return kh_value(h, iter);
 }
 
+// Auxiliary functions for B support
+void bam_aux_appendB(bam1_t *b, const char tag[2], char type, char subtype, int len, uint8_t *data)
+{
 
-  
+  int ori_len;
+
+  int data_len;
+
+  // check that type is 'B'
+  if('B' != type) return;
+
+  ori_len = b->data_len;
+
+  data_len = len * bam_aux_type2size(subtype);
+  // infer the data length from the sub-type
+  b->data_len += 8 + data_len;
+
+  b->l_aux += 8 + data_len;
+
+  if (b->m_data < b->data_len) 
+    {
+
+      b->m_data = b->data_len;
+
+      kroundup32(b->m_data);
+
+      b->data = (uint8_t*)realloc(b->data, b->m_data);
+
+    }
+
+  b->data[ori_len] = tag[0];
+  b->data[ori_len + 1] = tag[1];
+  // tag
+  b->data[ori_len + 2] = type;
+  // type
+  b->data[ori_len + 3] = subtype;
+  // subtype
+  (*(int32_t*)(b->data + ori_len + 4)) = len;
+  // size
+  memcpy(b->data + ori_len + 8, data, data_len);
+  // data
+}
+
+/*
+// return size of auxiliary type
+int bam_aux_type2size(int x)
+{
+  if (x == 'C' || x == 'c' || x == 'A') return 1;
+  else if (x == 'S' || x == 's') return 2;
+  else if (x == 'I' || x == 'i' || x == 'f') return 4;
+  else return 0;
+}
+*/
 
 
 

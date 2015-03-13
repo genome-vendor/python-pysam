@@ -74,9 +74,21 @@ cdef extern from "stdint.h":
   ctypedef int uint8_t
   ctypedef int uint64_t
 
+cdef extern from "zlib.h":
+  ctypedef void * gzFile
+  ctypedef int64_t z_off_t
+
+  int gzclose(gzFile fp)
+  int gzread(gzFile fp, void *buf, unsigned int n)
+  char *gzerror(gzFile fp, int *errnum)
+
+  gzFile gzopen( char *path, char *mode)
+  gzFile gzdopen (int fd, char *mode)
+  char * gzgets(gzFile file, char *buf, int len)
+  int gzeof( gzFile file )
+
 cdef extern from "Python.h":
     ctypedef struct FILE
-    FILE* PyFile_AsFile(object)
     char *fgets(char *str, int size, FILE *ifile)
     int feof(FILE *stream)
     size_t strlen(char *s)
@@ -84,6 +96,7 @@ cdef extern from "Python.h":
     char *strstr(char *, char *)
     char *strchr(char *string, int c)
     int fileno(FILE *stream)
+    FILE *fdopen(int fd, char *mode)
 
 cdef extern from "bgzf.h":
 
@@ -169,11 +182,71 @@ cdef extern from "tabix.h":
   #  /* Get the data line pointed by the iterator and iterate to the next record. */
   # char *ti_iter_read(BGZF *fp, ti_iter_t iter, int *len)
 
+cdef extern from "pysam_stream.h":
+
+    ctypedef struct kstring_t:
+        size_t l
+        size_t m
+        char * s
+
+    ctypedef struct kstream_t:
+        pass
+
+    kstream_t * ks_init( gzFile )
+
+    int ks_read( kstream_t * )
+    void ks_destroy( kstream_t * )
+    int ks_getuntil( kstream_t *, int, kstring_t *, int * ) 
+
+cdef class tabix_file_iterator:
+    cdef gzFile fh
+    cdef kstream_t * ks
+    cdef kstring_t buffer
+    cdef size_t size
+    cdef Parser parser
+    cdef int fd
+    cdef infile
+
+    cdef __cnext__(self)
+
 cdef class Tabixfile:
-    cdef char * _filename
 
     # pointer to tabixfile
     cdef tabix_t * tabixfile
      
+    # flag indicating whether file is remote
+    cdef int isremote
+
+    cdef char * _filename
+
+    cdef Parser parser
+    
+cdef class TabixIterator:
+    cdef ti_iter_t iterator
+    cdef tabix_t * tabixfile
+
+cdef class TabixHeaderIterator:
+    cdef ti_iter_t iterator
+    cdef tabix_t * tabixfile
+
 cdef class Parser:
+     cdef parse(self, char * buffer, int len)
+
+cdef class asTuple(Parser):
+     cdef parse(self, char * buffer, int len)
+
+cdef class asGTF(Parser):
      pass
+
+cdef class asBed(Parser):
+     pass
+
+cdef class asVCF(Parser):
+     pass
+
+cdef class TabixIteratorParsed:
+    cdef ti_iter_t iterator
+    cdef tabix_t * tabixfile
+    cdef Parser parser
+
+cdef _force_str(object s)
